@@ -37,7 +37,7 @@ internal sealed class InfoBulkCommand : XvdCommand<InfoBulkCommand.Settings>
         var fileDict = new HashSet<string>();
         foreach (var filePath in filePaths) {
             var components = new Uri(filePath).AbsolutePath.Split('/');
-            if (components.Length < 3 || !components[^1].EndsWith(".xvc")) {
+            if (components.Length < 3 || (!components[^1].EndsWith(".xvc") && !components[^1].EndsWith(".msixvc"))) {
                 continue;
             }
              
