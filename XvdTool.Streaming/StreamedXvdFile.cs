@@ -384,7 +384,7 @@ public partial class StreamedXvdFile : IDisposable
         return LocalVerifyDataHashes();
     }
 
-    public void ExtractFiles(string outputPath, in KeyEntry key, bool skipHashCheck = false, uint[]? skippedRegionList = null, uint[]? downloadRegionList = null)
+    public void ExtractFiles(string outputPath, in KeyEntry key, bool skipHashCheck = false, uint[]? skippedRegionList = null, uint[]? downloadRegionList = null, string[]? filePatterns = null)
     {
         if (!_hasXvcInfo)
         {
@@ -401,6 +401,12 @@ public partial class StreamedXvdFile : IDisposable
         if (0 >= _segments.Length)
         {
             ConsoleLogger.WriteWarnLine("XVC does not contain any segments/files.");
+            return;
+        }
+
+        //If user provides -f, we are using the selector path instead.
+        if (filePatterns is { Length: > 0 }) {
+            ExtractSelectedFiles(outputPath, key, skipHashCheck, skippedRegionList, downloadRegionList, filePatterns);
             return;
         }
 
