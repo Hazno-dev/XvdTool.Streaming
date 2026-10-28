@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using DiscUtils;
 using DiscUtils.Ntfs;
 using DiscUtils.Partitions;
@@ -913,6 +914,155 @@ public partial class StreamedXvdFile : IDisposable
         static Rows StringToRows(string text)
         {
             return new Rows(text.Split(Environment.NewLine).Select(x => new Text(x.Trim())));
+        }
+
+        static string ToFileSize(ulong size)
+        {
+            if (size < 1024)
+                return $"{size} B";
+
+            if (size < 1024 * 1024)
+                return $"{Math.Round(size / 1024.0, 2)} KB";
+
+            if (size < 1024 * 1024 * 1024)
+                return $"{Math.Round(size / (1024.0 * 1024.0), 2)} MB";
+
+            return $"{Math.Round(size / (1024.0 * 1024.0 * 1024.0), 2)} GB";
+        }
+    }
+
+    public string PrintInfoBulk(string[]? files, string[]? exclude = null, string[]? include = null)
+    {
+        if (!_hasPartitionFiles && !_hasSegmentMetadata) {
+            return "\n      No Partition or Segment Files";
+        }
+
+
+        var matchingFiles = new List<(string Path, ulong Size)>();
+        matchingFiles.AddRange(_partitionFileEntries);
+        if (_hasSegmentMetadata) {
+            for (var i = 0; i  < _segments.Length; i++) {
+                var segment = _segments[i];
+                matchingFiles.Add((_segmentPaths[i], segment.FileSize));
+            }
+        }
+        
+        var fileCount = matchingFiles.Count;
+        var totalSize = (ulong)matchingFiles.Sum(x => (double)x.Size);
+        
+        if (exclude is { Length: > 0 }) {
+            matchingFiles = [.. matchingFiles.Where(file => !MatchesAnyFilter(file.Path, exclude))];
+        }
+
+        if (include is { Length: > 0 }) {
+            matchingFiles = [.. matchingFiles.Where(file => MatchesAnyFilter(file.Path, include))];
+        }
+
+        matchingFiles.Sort((a, b) => {
+            var sorter = 0;
+            if ((sorter = SortExtension(".exe", a.Path, b.Path)) != 0) {
+                return sorter;
+            }
+            
+            if ((sorter = SortExtension(".bin", a.Path, b.Path)) != 0) {
+                return sorter;
+            }   
+            
+            if ((sorter = SortExtension(".dll", a.Path, b.Path)) != 0) {
+                return sorter;
+            }
+
+            return string.Compare(a.Path, b.Path, StringComparison.OrdinalIgnoreCase);
+        });
+        
+        var str = string.Empty;
+        if (files != null) {
+            foreach (var file in files) {
+                var entry = matchingFiles.FirstOrDefault(x => x.Path == file);
+                if (string.IsNullOrEmpty(entry.Path)) {
+                    continue;
+                }
+
+                str += GetFileLineString(file, entry.Size);
+            }
+        }
+        else {
+            foreach (var entry in matchingFiles) {
+                if (string.IsNullOrEmpty(entry.Path)) {
+                    continue;
+                }
+                
+                str += GetFileLineString(entry.Path, entry.Size);
+            }
+        }
+
+        if (string.IsNullOrEmpty(str)) {
+            return "\n      No Matching Files";
+        }
+        
+        str += $"\n\n      {fileCount} Total Files ({ToFileSize(totalSize)})";
+        return str;
+
+        static bool MatchesAnyFilter(string filePath, IEnumerable<string> filters)
+        {
+            var normalizedPath = NormalizeFilterPath(filePath);
+            foreach (var filter in filters)
+            {
+                if (string.IsNullOrWhiteSpace(filter))
+                    continue;
+
+                var pattern = NormalizeFilterPath(filter);
+                if (MatchesWildcard(normalizedPath, pattern))
+                    return true;
+            }
+
+            return false;
+        }
+
+        static int SortExtension(string ext, string a, string b)
+        {
+            if (a.EndsWith(ext)) {
+                if (b.EndsWith(ext)) {
+                    return 0;
+                }
+                
+                return -1;
+            }
+            
+            if (b.EndsWith(ext)) {
+                return 1;
+            }
+
+            return 0;
+        }
+
+        static string GetFileLineString(string path, ulong size)
+        {
+            return $"\n      {ToFileSize(size),-15} {path}";
+        }
+
+        static string NormalizeFilterPath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return string.Empty;
+
+            var normalized = path.Replace('\\', '/');
+            while (normalized.StartsWith("./", StringComparison.Ordinal))
+                normalized = normalized[2..];
+            return normalized.TrimStart('/');
+        }
+
+        static bool MatchesWildcard(string input, string pattern)
+        {
+            if (string.Equals(input, pattern, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var regexPattern = "^" + Regex.Escape(pattern)
+                .Replace(@"\*", ".*")
+                .Replace(@"\?", ".")
+                + "$";
+
+            return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
 
         static string ToFileSize(ulong size)
